@@ -1,15 +1,11 @@
 # EraseStream
 
-## 评测的几个模型以及对应 repo
-EffectErase：https://github.com/FudanCVL/EffectErase <br>
-MiniMax-Remover：https://github.com/zibojia/MiniMax-Remover <br>
-VACE: https://github.com/ali-vilab/VACE
-
-## 下载评测的数据（83个视频对 video+mask）
+## 评测的模型 EffectErase 在两个 benchmark 的表现，最终给我两个表格就行
+(1) ROSE-Bench <br>
 ```bash
 hf download \
   --repo-type dataset \
-  --include "davis_evaluation/*" \
-  --local-dir ./davis_evaluation \
-  zhuobai/StreamErase
+  --include "Benchmark/*" \
+  --local-dir ./Benchmark \
+  Kunbyte/ROSE-Dataset
 ```
