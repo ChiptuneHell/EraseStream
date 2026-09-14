@@ -1,6 +1,8 @@
 # EraseStream
 
 ## 评测模型 EffectErase 在两个 benchmark 的表现，最终给我两个表格就行
+
+### benchmark 下载指令
 (1) ROSE-Bench <br>
 ```bash
 hf download \
@@ -17,3 +19,12 @@ hf download \
   --local-dir . \
   FudanCVL/EffectErase
 ```
+
+### 评测脚本运行指令
+```bash
+python evaluate_ROSE-Bench.py
+```
+```bash
+python evaluate_VOR-Eval.py
+```
+
