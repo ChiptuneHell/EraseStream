@@ -28,3 +28,26 @@ python evaluate_ROSE-Bench.py
 python evaluate_VOR-Eval.py
 ```
 
+# Inference
+
+### Installation
+```bash
+conda create -n causal_forcing python=3.10 -y
+conda activate causal_forcing
+pip install -r requirements.txt
+pip install git+https://github.com/openai/CLIP.git
+pip install flash-attn --no-build-isolation
+python setup.py develop
+```
+
+### Download Checkpoints
+```bash
+hf download Wan-AI/Wan2.1-T2V-1.3B  --local-dir wan_models/Wan2.1-T2V-1.3B
+hf download zhuhz22/Causal-Forcing chunkwise/causal_forcing.pt --local-dir checkpoints
+```
+
+### Inference
+```bash
+python inference.py
+```
+
