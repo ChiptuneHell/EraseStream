@@ -57,7 +57,8 @@ python inference.py
 https://github.com/guandeh17/Self-Forcing
 
 和用户互动的 demo 可参考下面这个链接，目前可以先去除掉 SAM 提取mask的环节，直接让用户选择我们默认提供的 mask
-https://huggingface.co/spaces/jixin0101/ObjectClear
+https://huggingface.co/spaces/jixin0101/ObjectClear<br>
+https://github.com/sczhou/ProPainter
 
 两个 demo 网页也可以做到一起，一个展示，一个互动
 
