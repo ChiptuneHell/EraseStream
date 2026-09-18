@@ -13,7 +13,7 @@ python setup.py develop
 ### Download Checkpoints
 ```bash
 hf download Wan-AI/Wan2.1-T2V-1.3B  --local-dir wan_models/Wan2.1-T2V-1.3B
-hf download zhuhz22/Causal-Forcing chunkwise/causal_forcing.pt --local-dir checkpoints
+hf download zhuobai/StreamErase model.pt --local-dir weights
 ```
 
 ### Inference
