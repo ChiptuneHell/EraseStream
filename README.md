@@ -21,6 +21,11 @@ hf download zhuobai/StreamErase model.pt --local-dir model_weights
 python inference.py
 ```
 
+### 测试时间
+```bash
+python time.py
+```
+
 # 制作视频 demo
 
 可参考下面这个链接的 demo.mp4 (demo.py) ，做个类似差不多的，重点要展示我们生成的速度很快，超过实时生成
