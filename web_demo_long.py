@@ -253,13 +253,13 @@ def run_job(video_name, latent_frames, job_id):
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = RESULT_DIR / f"{job_id}.mp4"
         temporary_path = RESULT_DIR / f"{job_id}.tmp.mp4"
+        # ``causal_inference_long`` returns [B, T, C, H, W], while
+        # torchvision.write_video expects [T, H, W, C].  Keeping the channel
+        # dimension in the second position produces the ``Unexpected numpy
+        # array shape (3, 480, 832)`` error when torchvision converts frames.
         frames_out = (
-            (video_out[0] * 255.0)
-            .clamp(0, 255)
-            .round()
-            .to(torch.uint8)
-            .cpu()
-        )
+            rearrange(video_out[0], "t c h w -> t h w c") * 255.0
+        ).clamp(0, 255).round().to(torch.uint8).cpu()
         write_video(str(temporary_path), frames_out, fps=OUTPUT_FPS)
         os.replace(temporary_path, output_path)
         if hasattr(model.vae.model, "clear_cache"):
