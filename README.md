@@ -37,6 +37,18 @@ https://github.com/sczhou/ProPainter
 
 两个 demo 网页也可以做到一起，一个展示，一个互动
 
+## 第一版 Web Demo
+
+模型环境和权重准备好后，在项目根目录运行：
+
+```bash
+python web_demo.py
+```
+
+然后打开 `http://127.0.0.1:5001`。页面使用 `test_input/video` 和
+`test_input/mask` 中的同名视频作为示例，选择视频后点击“开始生成”即可看到
+原视频、mask、擦除结果和实时速度统计。结果文件会写入 `web/results/`。
+
 后续制作 mask 可参考下面这个链接
 https://github.com/sakshamsingh1/sam3_mask_annotation_tool
 
