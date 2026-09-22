@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>StreamErase / Long Video</title>
-  <link rel="stylesheet" href="static_long/style.css">
+  <link rel="stylesheet" href="static_long/style.css?v=overlay-1">
 </head>
 <body>
   <main class="page-shell">
@@ -40,12 +40,13 @@
       <div class="column">
         <div class="section-heading"><span>02</span><h2>Input</h2><i></i></div>
         <div class="media-card input-card">
-          <div class="card-top"><span>Source video</span><small>LONG TEST INPUT</small></div>
-          <video id="src" muted loop playsinline></video>
-        </div>
-        <div class="media-card mask-card">
-          <div class="card-top"><span>Removal mask</span><small>MASK CONDITION</small></div>
-          <video id="mask" muted loop playsinline></video>
+          <div class="card-top"><span>Source + mask</span><small>MASK OVERLAY</small></div>
+          <div class="input-stage">
+            <canvas id="input-canvas" width="832" height="480" aria-label="Source video with the removal mask overlaid"></canvas>
+            <div class="input-legend"><span class="legend-swatch"></span><span>Removal region</span></div>
+            <video id="src" muted loop playsinline aria-hidden="true"></video>
+            <video id="mask" muted loop playsinline aria-hidden="true"></video>
+          </div>
         </div>
       </div>
 
@@ -80,6 +81,6 @@
     <footer><span>StreamErase / long video</span><span>Mask-conditioned causal restoration</span></footer>
   </main>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="static_long/app.js"></script>
+  <script src="static_long/app.js?v=overlay-1"></script>
 </body>
 </html>

@@ -35,9 +35,13 @@ button { transition: .18s ease; } button:hover:not(:disabled) { transform: trans
 .section-heading i { height: 1px; background: var(--line); flex: 1; }
 .section-heading b { color: var(--accent); font: 11px 'DM Mono', monospace; }
 .media-card { background: #181a18; border: 1px solid var(--line); position: relative; overflow: hidden; }
-.mask-card { margin-top: 12px; }
 .card-top { justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); color: #d5d9d1; font-size: 12px; }
 video { display: block; width: 100%; aspect-ratio: 832 / 480; object-fit: cover; background: #0a0b0a; }
+.input-stage { position: relative; width: 100%; aspect-ratio: 832 / 480; background: #0a0b0a; }
+#input-canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
+.input-stage > video { position: absolute; width: 1px; height: 1px; left: -2px; top: -2px; opacity: 0; pointer-events: none; }
+.input-legend { position: absolute; left: 13px; bottom: 12px; display: inline-flex; align-items: center; gap: 7px; padding: 6px 8px; color: #fff3e8; background: #1a1713c9; border: 1px solid #ffb16d70; font: 10px 'DM Mono', monospace; letter-spacing: .04em; text-transform: uppercase; backdrop-filter: blur(6px); }
+.legend-swatch { width: 9px; height: 9px; display: inline-block; background: var(--orange); box-shadow: 0 0 9px #ff9b4a99; }
 .result-card video { min-height: 100%; }
 .empty-state { position: absolute; inset: 43px 0 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); pointer-events: none; }
 .empty-state strong { color: var(--accent); font-size: 26px; }.empty-state span { color: var(--text); font-size: 14px; }.empty-state small { font-size: 11px; }
