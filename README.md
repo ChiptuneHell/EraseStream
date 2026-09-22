@@ -21,6 +21,11 @@ hf download zhuobai/StreamErase model.pt --local-dir model_weights
 python inference.py
 ```
 
+### Inference Long Video
+```bash
+python inference_long.py
+```
+
 ### 测试时间
 ```bash
 python time.py
