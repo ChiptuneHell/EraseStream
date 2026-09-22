@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Callable, List, Optional
 import time
 import torch
 import tqdm
@@ -98,9 +98,18 @@ class CausalInferencePipeline(torch.nn.Module):
         low_memory: bool = False,
         rectified_tf = False,
         report_timing: bool = False,
+        block_callback: Optional[Callable] = None,
     ) -> torch.Tensor:
         """
         Perform inference on the given noise and text prompts.
+
+        When ``block_callback`` is supplied, each completed causal block is
+        decoded immediately with the VAE's temporal cache and passed to the
+        callback as a ``[B, T, C, H, W]`` tensor in the ``[0, 1]`` range.
+        The first block contains 9 pixel frames (1 + 2 * 4) and subsequent
+        three-latent blocks contain 12 frames, matching the full VAE output
+        length of ``latent_frames * 4 - 3``.  The normal no-callback path is
+        unchanged and still performs one complete non-cached decode.
         """
         # 🆕 关键修复 1：每次推理开始时强行确保底层 model 属性配置同步
         if hasattr(self.generator, "model"):
@@ -136,6 +145,7 @@ class CausalInferencePipeline(torch.nn.Module):
             device=noise.device,
             dtype=noise.dtype
         )
+        streamed_video = []
 
         # Set up profiling if requested
         if profile:
@@ -297,6 +307,31 @@ class CausalInferencePipeline(torch.nn.Module):
                 current_start=current_start_frame * self.frame_seq_length,
             )
 
+            # Decode as soon as the causal context for this block has been
+            # updated.  ``cached_decode`` is stateful: the first latent frame
+            # contributes one pixel frame and each later latent contributes
+            # four, so no overlap trimming is required between blocks.
+            if block_callback is not None:
+                if block_index == 0:
+                    self.vae.model.clear_cache()
+                pixel_block = self.vae.decode_to_pixel(
+                    denoised_pred,
+                    use_cache=True,
+                )
+                pixel_block = (pixel_block * 0.5 + 0.5).clamp(0, 1)
+                # Keep the already decoded blocks off the GPU while later
+                # diffusion blocks are generated. The web callback has its
+                # own CPU JPEG conversion, and the final writer also accepts
+                # CPU tensors, so retaining these pixels on the device would
+                # needlessly duplicate hundreds of megabytes for long clips.
+                streamed_video.append(pixel_block.detach().cpu())
+                block_callback(
+                    pixel_block,
+                    block_index,
+                    current_start_frame,
+                    block_index == len(all_num_frames) - 1,
+                )
+
             if profile:
                 block_end.record()
                 torch.cuda.synchronize()
@@ -323,9 +358,14 @@ class CausalInferencePipeline(torch.nn.Module):
             torch.cuda.synchronize()
             self.last_generation_time = time.time() - self._gen_start_time
 
-        # Step 4: Decode the output
-        video = self.vae.decode_to_pixel(output, use_cache=False)
-        video = (video * 0.5 + 0.5).clamp(0, 1)
+        # Step 4: Decode the output.  Streaming callers already decoded each
+        # block above and can reuse those pixels without a second full VAE
+        # pass.  Keep the original complete decode for all other callers.
+        if block_callback is not None and streamed_video:
+            video = torch.cat(streamed_video, dim=1)
+        else:
+            video = self.vae.decode_to_pixel(output, use_cache=False)
+            video = (video * 0.5 + 0.5).clamp(0, 1)
 
         if profile:
             vae_end.record()

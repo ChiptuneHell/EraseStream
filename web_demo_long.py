@@ -8,18 +8,20 @@ Run from the repository root:
 
     python web_demo_long.py --host 0.0.0.0 --port 5001
 
-The first version still decodes the complete result before publishing the MP4.
-The next iteration can add block callbacks and cached VAE decoding without
-changing the input preparation or page contract introduced here.
+The long-video pipeline publishes each decoded causal block as JPEG frames
+while generation is running.  It still writes a final H.264 MP4 at the end so
+the browser can switch from the live canvas to synchronized video playback.
 """
 
 import argparse
+import base64
 import os
 import threading
 import time
 import uuid
 from pathlib import Path
 
+import cv2
 import torch
 import torch.nn.functional as F
 from diffusers.image_processor import VaeImageProcessor
@@ -238,7 +240,76 @@ def run_job(video_name, latent_frames, job_id):
             dtype=WEIGHT_DTYPE,
         )
         socketio.emit("progress", {"job_id": job_id, "progress": 25, "message": "Generating long video"})
+        socketio.emit(
+            "stream_started",
+            {
+                "job_id": job_id,
+                "fps": OUTPUT_FPS,
+                "total_frames": target_pixel_frames,
+                "latent_frames": latent_frames,
+            },
+        )
         generation_started = time.perf_counter()
+
+        stream_frame_cursor = 0
+        num_blocks = max(
+            1,
+            (latent_frames + max(1, int(getattr(model, "num_frame_per_block", 1))) - 1)
+            // max(1, int(getattr(model, "num_frame_per_block", 1))),
+        )
+
+        def emit_stream_block(pixel_block, block_index, _latent_start, is_last):
+            """Encode one decoded VAE block and publish ordered JPEG frames."""
+            nonlocal stream_frame_cursor
+            frames = (
+                pixel_block[0]
+                .detach()
+                .float()
+                .mul(255.0)
+                .clamp(0, 255)
+                .round()
+                .to(torch.uint8)
+                .permute(0, 2, 3, 1)
+                .cpu()
+                .numpy()
+            )
+            for frame in frames:
+                # The VAE exposes RGB tensors while OpenCV encodes BGR.
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                encoded_ok, encoded = cv2.imencode(
+                    ".jpg",
+                    frame_bgr,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), 86],
+                )
+                if not encoded_ok:
+                    raise RuntimeError("Could not encode a streamed output frame")
+                socketio.emit(
+                    "stream_frame",
+                    {
+                        "job_id": job_id,
+                        "frame_index": stream_frame_cursor,
+                        "jpeg": base64.b64encode(encoded.tobytes()).decode("ascii"),
+                        "fps": OUTPUT_FPS,
+                    },
+                )
+                stream_frame_cursor += 1
+
+            stream_progress = 25 + round(60 * (block_index + 1) / num_blocks)
+            socketio.emit(
+                "progress",
+                {
+                    "job_id": job_id,
+                    "progress": min(85, stream_progress),
+                    "message": "Streaming output" if not is_last else "Finalizing output",
+                    "stream_frame": stream_frame_cursor,
+                },
+            )
+            if is_last:
+                socketio.emit(
+                    "stream_finished",
+                    {"job_id": job_id, "frames": stream_frame_cursor},
+                )
+
         with torch.inference_mode():
             video_out = model.inference(
                 noise=noise,
@@ -246,6 +317,7 @@ def run_job(video_name, latent_frames, job_id):
                 text_prompts=[PROMPT],
                 return_latents=False,
                 report_timing=True,
+                block_callback=emit_stream_block,
             )
         torch.cuda.synchronize()
         generation_seconds = time.perf_counter() - generation_started

@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "size": [
+    832,
+    480
+  ],
+  "fps": 16,
+  "frames": 249,
+  "source": [
+    "C:\\Users\\14223\\Documents\\Projects\\EraseStream\\long_test_input\\video\\video.mp4",
+    13895249,
+    1790076575531384000
+  ],
+  "mask": [
+    "C:\\Users\\14223\\Documents\\Projects\\EraseStream\\long_test_input\\mask\\video.mp4",
+    6765351,
+    1790076575438748800
+  ]
+}
