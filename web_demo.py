@@ -99,7 +99,7 @@ def run_job(video_name, sio_job):
     started = time.perf_counter()
     try:
         model, vae = load_model()
-        socketio.emit("progress", {"job_id": sio_job, "progress": 8, "message": "读取视频和 mask"})
+        socketio.emit("progress", {"job_id": sio_job, "progress": 8, "message": "Loading source video and mask"})
         vp = ROOT / "test_input/video" / video_name
         mp = ROOT / "test_input/mask" / video_name
         video, mask, _, _ = get_video_and_mask(str(vp), video_length=81, sample_size=[480, 832], input_mask_path=str(mp))
@@ -109,18 +109,18 @@ def run_job(video_name, sio_job):
         mask_proc = VaeImageProcessor(vae_scale_factor=8, do_normalize=False, do_binarize=True, do_convert_grayscale=True)
         init = rearrange(image_proc.preprocess(rearrange(video, "b c f h w -> (b f) c h w"), height=height, width=width), "(b f) c h w -> b c f h w", f=frames).float()
         m = rearrange(mask_proc.preprocess(rearrange(mask, "b c f h w -> (b f) c h w"), height=height, width=width), "(b f) c h w -> b c f h w", f=frames).float()
-        socketio.emit("progress", {"job_id": sio_job, "progress": 18, "message": "编码条件和 mask"})
+        socketio.emit("progress", {"job_id": sio_job, "progress": 18, "message": "Encoding removal condition"})
         masked_latents = vae.encode(init.to(dtype=vae.dtype))[0].mode()
         m = torch.cat([torch.repeat_interleave(m[:, :, :1], 4, dim=2), m[:, :, 1:]], dim=2)
         m = m.view(1, m.shape[2] // 4, 4, height, width).transpose(1, 2)
         mask_latents = resize_mask(1 - m, masked_latents).to(DEVICE, torch.bfloat16)
         y = torch.cat([mask_latents, masked_latents], dim=1)
         noise = torch.randn([1, 21, 16, 60, 104], device=DEVICE, dtype=torch.bfloat16)
-        socketio.emit("progress", {"job_id": sio_job, "progress": 25, "message": "开始因果分块生成"})
+        socketio.emit("progress", {"job_id": sio_job, "progress": 25, "message": "Running causal generation"})
         with torch.inference_mode():
             out = model.inference(noise=noise, y=y, text_prompts=["Remove the specified object and all related effects, then restore a clean background"], return_latents=False)
         # Keep progress visible while the GPU call finishes; the output is then immediately playable.
-        socketio.emit("progress", {"job_id": sio_job, "progress": 92, "message": "写出结果视频"})
+        socketio.emit("progress", {"job_id": sio_job, "progress": 92, "message": "Encoding result video"})
         result_dir = ROOT / "web/results"; result_dir.mkdir(parents=True, exist_ok=True)
         out_path = result_dir / f"{sio_job}.mp4"
         frames_out = (rearrange(out, "b t c h w -> b t h w c")[0] * 255).clamp(0, 255).to(torch.uint8).cpu()
@@ -161,12 +161,12 @@ def start(data):
     global ACTIVE
     with JOB_LOCK:
         if ACTIVE:
-            emit("job_error", {"message": "已有任务正在运行"}); return
+            emit("job_error", {"message": "Another generation is already running"}); return
         name = data.get("video")
         if name not in [p.name for p in (ROOT / "test_input/video").glob("*.mp4")]:
-            emit("job_error", {"message": "找不到所选视频"}); return
+            emit("job_error", {"message": "The selected demo clip was not found"}); return
         if not MODEL_READY:
-            emit("job_error", {"message": MODEL_ERROR or "GPU 模型仍在准备，请稍候"}); return
+            emit("job_error", {"message": MODEL_ERROR or "The GPU model is still preparing"}); return
         ACTIVE = True; job = uuid.uuid4().hex
         threading.Thread(target=run_job, args=(name, job), daemon=True).start()
         emit("started", {"job_id": job})

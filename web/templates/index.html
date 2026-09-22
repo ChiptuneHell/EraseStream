@@ -1,7 +1,50 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StreamErase Demo</title><link rel="stylesheet" href="static/style.css"></head>
-<body><main><header><div><p class="eyebrow">STREAM ERASE · REAL-TIME VIDEO INPAINTING</p><h1>擦除视频，速度超过实时播放</h1><p class="sub">选择原视频和对应 mask，模型会自动恢复被擦除区域。</p></div><div class="badge">CAUSAL · 1-STEP</div></header>
-<section class="controls"><label>示例视频<select id="video">{% for p in presets %}<option value="{{p}}">{{p}}</option>{% endfor %}</select></label><button id="start" disabled>准备 GPU…</button><span id="status">正在准备模型…</span></section>
-<section class="metrics"><div><b id="elapsed">—</b><small>生成耗时</small></div><div><b id="fps">—</b><small>生成 FPS</small></div><div><b id="speed">—</b><small>实时倍率</small></div><div><b id="frames">—</b><small>输出帧数</small></div></section>
-<section class="grid"><article><h2>原视频</h2><video id="src" loop muted playsinline></video></article><article><h2>Mask 预览</h2><video id="mask" loop muted playsinline></video></article><article class="result"><h2>擦除结果 <span id="progress">0%</span></h2><video id="out" loop muted playsinline></video><div class="bar"><i id="bar"></i></div></article></section>
-<section class="player-controls"><button id="play" disabled>▶ 播放</button><button id="reset" disabled>↺ 重置</button><input id="scrub" type="range" min="0" max="1000" value="0" disabled><span id="clock">0.0 / 0.0 秒</span></section>
-<section class="timeline"><span>播放时间线</span><div><i id="playline"></i><em id="genline"></em></div><small>蓝色：播放进度　绿色：已生成进度</small></section></main><script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script><script src="static/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StreamErase — Real-time Video Object Removal</title>
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">✦</span><span>StreamErase</span></div>
+      <div class="status-pill"><i></i><span id="status">Preparing GPU</span></div>
+    </header>
+
+    <section class="intro">
+      <div>
+        <p class="kicker">CAUSAL VIDEO INPAINTING · LIVE DEMO</p>
+        <h1>Remove objects<br><em>as the video plays.</em></h1>
+        <p class="lede">A fast, mask-conditioned video eraser designed to keep up with playback.</p>
+      </div>
+      <div class="intro-note"><span>01</span><p>Input-guided<br>temporal restoration</p></div>
+    </section>
+
+    <section class="workspace">
+      <div class="input-column">
+        <div class="section-head"><span class="section-index">01</span><h2>Input</h2><span class="section-rule"></span></div>
+        <div class="video-card input-card"><div class="card-label">SOURCE VIDEO</div><video id="src" loop muted playsinline></video></div>
+        <div class="video-card mask-card"><div class="card-label">REMOVAL MASK</div><video id="mask" loop muted playsinline></video></div>
+        <div class="input-row"><label for="video">Demo clip</label><select id="video">{% for p in presets %}<option value="{{p}}">{{p}}</option>{% endfor %}</select></div>
+      </div>
+
+      <div class="result-column">
+        <div class="section-head"><span class="section-index">02</span><h2>Result</h2><span class="section-rule"></span><span id="progress" class="percent">0%</span></div>
+        <div class="video-card result-card" id="result-card"><div class="card-label">STREAM ERASE OUTPUT</div><video id="out" loop muted playsinline></video><div class="empty-state" id="empty"><span>✦</span><b>Ready to erase</b><small>Choose a clip and start the demo</small></div></div>
+        <div class="playback-row"><button id="play" class="icon-button" disabled><span>▶</span><b>Play all</b></button><button id="reset" class="text-button" disabled>Reset</button><span id="clock">0.0 / 0.0 s</span><input id="scrub" type="range" min="0" max="1000" value="0" disabled></div>
+        <div class="action-row"><button id="start" class="primary-button" disabled><span>✦</span> Prepare GPU…</button><span class="hint">Results are muted for instant playback</span></div>
+      </div>
+    </section>
+
+    <section class="telemetry">
+      <div class="section-head"><span class="section-index">03</span><h2>Generation telemetry</h2><span class="section-rule"></span></div>
+      <div class="progress-block"><div class="progress-label"><span>Generation</span><b id="generation-label">Waiting</b></div><div class="track"><i id="bar"></i></div></div>
+      <div class="progress-block"><div class="progress-label"><span>Playback</span><b id="playback-label">0%</b></div><div class="track playback-track"><i id="playline"></i></div></div>
+      <div class="stats"><div><small>Generation FPS</small><b id="fps">—</b></div><div><small>Realtime speed</small><b id="speed">—</b></div><div><small>Elapsed</small><b id="elapsed">—</b></div><div><small>Output frames</small><b id="frames">—</b></div></div>
+    </section>
+    <footer><span>StreamErase</span><span>Mask-conditioned causal restoration</span></footer>
+  </main>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script><script src="static/app.js"></script>
+</body>
+</html>
