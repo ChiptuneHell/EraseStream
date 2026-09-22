@@ -49,6 +49,8 @@ python web_demo.py
 `test_input/mask` 中的同名视频作为示例，选择视频后点击“开始生成”即可看到
 原视频、mask、擦除结果和实时速度统计。结果文件会写入 `web/results/`。
 
+如果运行在带路径前缀的 GPU 平台（例如 `/session/<id>/proxy/5001/`），直接打开平台提供的代理地址即可；页面资源、视频、结果和 Socket.IO 连接都会按当前页面路径解析。
+
 后续制作 mask 可参考下面这个链接
 https://github.com/sakshamsingh1/sam3_mask_annotation_tool
 

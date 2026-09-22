@@ -97,7 +97,7 @@ def run_job(video_name, sio_job):
         write_video(str(out_path), frames_out, fps=16)
         elapsed = time.perf_counter() - started
         fps = frames_out.shape[0] / elapsed
-        socketio.emit("complete", {"job_id": sio_job, "url": f"/results/{out_path.name}", "elapsed": round(elapsed, 2), "fps": round(float(fps), 2), "frames": int(frames_out.shape[0]), "realtime": round(float(fps / 16), 2)})
+        socketio.emit("complete", {"job_id": sio_job, "url": f"results/{out_path.name}", "elapsed": round(elapsed, 2), "fps": round(float(fps), 2), "frames": int(frames_out.shape[0]), "realtime": round(float(fps / 16), 2)})
     except Exception as exc:
         socketio.emit("job_error", {"job_id": sio_job, "message": str(exc)})
     finally:

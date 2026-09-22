@@ -1,5 +1,7 @@
-const socket=io(); const $=id=>document.getElementById(id); const video=$('video'), src=$('src'), mask=$('mask'), out=$('out');
-function setMedia(){src.src='/test_input/video/'+video.value; mask.src='/test_input/mask/'+video.value; src.load();mask.load()} video.addEventListener('change',setMedia); setMedia();
+// Keep requests relative so reverse-proxy prefixes are preserved.
+const pageBase=window.location.pathname.endsWith('/')?window.location.pathname:window.location.pathname+'/';
+const socket=io({path:pageBase+'socket.io'}); const $=id=>document.getElementById(id); const video=$('video'), src=$('src'), mask=$('mask'), out=$('out');
+function setMedia(){src.src='test_input/video/'+encodeURIComponent(video.value); mask.src='test_input/mask/'+encodeURIComponent(video.value); src.load();mask.load()} video.addEventListener('change',setMedia); setMedia();
 $('start').onclick=()=>{ $('start').disabled=true; $('status').textContent='正在加载模型…'; $('out').removeAttribute('src'); $('bar').style.width='0%'; socket.emit('start',{video:video.value}) };
 socket.on('started',d=>{$('status').textContent='生成中…';$('progress').textContent='25%';$('bar').style.width='25%'})
 socket.on('progress',d=>{$('status').textContent=d.message; $('progress').textContent=d.progress+'%';$('bar').style.width=d.progress+'%';$('genline').style.width=d.progress+'%'})
