@@ -100,7 +100,7 @@ def main():
     parser.add_argument("--output_folder", type=str, default="results_long")
     parser.add_argument("--prompt", type=str, default="Remove the specified object and all related effects, then restore a clean background")
     parser.add_argument("--config_path", type=str, default="configs/causal_forcing_dmd_chunkwise.yaml")
-    parser.add_argument("--checkpoint_path", type=str, default="../Erase-diffusion/logs/dmd_1step/checkpoint_model_001000/model.pt")
+    parser.add_argument("--checkpoint_path", type=str, default="model_weights/model.pt")
     parser.add_argument("--num_output_frames", type=int, default=63) # 可修改，让用户自己在页面改，比如用户想生成10秒的视频，这个值就是42
 
     # 21 = 5s; 42 = 10s; 63 = 15s 
