@@ -130,7 +130,13 @@ def main():
     local_attn_size = args.local_attn_size
 
     if hasattr(config, 'denoising_step_list'):
-        pipeline = CausalInferencePipeline2(config, device=device)
+        pipeline = CausalInferencePipeline2(
+            config,
+            device=device,
+            local_attn_size=args.local_attn_size,
+            sink_size=args.sink_size,
+            window_rope=args.window_rope,
+        )
     else:
         pipeline = CausalDiffusionInferencePipeline(config, device=device)
 

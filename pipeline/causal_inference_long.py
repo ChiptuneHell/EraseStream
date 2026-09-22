@@ -19,14 +19,24 @@ class CausalInferencePipeline(torch.nn.Module):
         generator=None,
         text_encoder=None,
         vae=None,
-        local_attn_size: int = -1,
-        sink_size: int = 0,
+        local_attn_size: int = 12,
+        sink_size: int = 3,
         window_rope: bool = False,
     ):
         super().__init__()
         # Step 1: Initialize all models
+        model_kwargs = dict(getattr(args, "model_kwargs", {}))
+        # The long-video attention settings must be applied while the causal
+        # transformer is constructed.  Changing only the top-level model
+        # attributes afterwards leaves each attention block with its original
+        # cache/window configuration.
+        model_kwargs.update(
+            is_causal=True,
+            local_attn_size=local_attn_size,
+            sink_size=sink_size,
+        )
         self.generator = WanDiffusionWrapper(
-            **getattr(args, "model_kwargs", {}), is_causal=True) if generator is None else generator
+            **model_kwargs) if generator is None else generator
         self.text_encoder = WanTextEncoder() if text_encoder is None else text_encoder
         self.vae = WanVAEWrapper() if vae is None else vae
 
@@ -58,16 +68,16 @@ class CausalInferencePipeline(torch.nn.Module):
         self.independent_first_frame = args.independent_first_frame
 
         # 长视频滑动窗口配置
-        self.local_attn_size = 12
-        self.sink_size = 3
-        # self.window_rope = window_rope
+        self.local_attn_size = local_attn_size
+        self.sink_size = sink_size
+        self.window_rope = window_rope
 
         # 挂载属性到 generator.model 以确保注意力计算层能识别长视频机制
         if hasattr(self.generator, "model"):
             self.generator.model.local_attn_size = self.local_attn_size
             self.generator.model.sink_size = self.sink_size
-            # if hasattr(self.generator.model, "window_rope"):
-            #     self.generator.model.window_rope = self.window_rope
+            if hasattr(self.generator.model, "window_rope"):
+                self.generator.model.window_rope = self.window_rope
 
         # Timing state
         self.last_generation_time = None

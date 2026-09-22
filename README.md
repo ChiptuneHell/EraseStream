@@ -56,6 +56,16 @@ python web_demo.py
 
 如果运行在带路径前缀的 GPU 平台（例如 `/session/<id>/proxy/5001/`），直接打开平台提供的代理地址即可；页面资源、视频、结果和 Socket.IO 连接都会按当前页面路径解析。
 
+## Long Video Web Demo
+
+新版长视频页面使用根目录的 `inference_long.py` 推理链路，旧版页面和入口保持不变。运行：
+
+```bash
+python web_demo_long.py --host 0.0.0.0 --port 5001
+```
+
+页面默认读取 `long_test_input/video` 和 `long_test_input/mask` 中的同名视频，支持 5、10、15 秒档位（对应 21、42、63 个 latent frames）。第一阶段会等待完整结果视频写入后播放；后续可以在这个独立入口上继续接入 block callback 和 VAE cache，实现边生成边播放。
+
 后续制作 mask 可参考下面这个链接
 https://github.com/sakshamsingh1/sam3_mask_annotation_tool
 
