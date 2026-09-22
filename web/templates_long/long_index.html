@@ -42,10 +42,8 @@
         <div class="media-card input-card">
           <div class="card-top"><span>Source + mask</span><small>MASK OVERLAY</small></div>
           <div class="input-stage">
-            <canvas id="input-canvas" width="832" height="480" aria-label="Source video with the removal mask overlaid"></canvas>
+            <video id="src" muted loop autoplay playsinline preload="auto" aria-label="Source video with the removal mask overlaid"></video>
             <div class="input-legend"><span class="legend-swatch"></span><span>Removal region</span></div>
-            <video id="src" muted loop playsinline aria-hidden="true"></video>
-            <video id="mask" muted loop playsinline aria-hidden="true"></video>
           </div>
         </div>
       </div>
