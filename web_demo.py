@@ -1,7 +1,8 @@
 """Small local web demo for StreamErase.
 
 Run with ``python web_demo.py`` and open http://127.0.0.1:5001.
-The model is loaded lazily when the first job is started.
+The model is prepared in the background when the server starts so the first
+button press measures the actual video job rather than checkpoint loading.
 """
 import argparse, os, threading, time, uuid
 from pathlib import Path
@@ -28,6 +29,11 @@ MODEL = None
 VAE = None
 JOB_LOCK = threading.Lock()
 ACTIVE = False
+MODEL_READY = False
+MODEL_ERROR = None
+PREP_STARTED_AT = None
+PREP_FINISHED_AT = None
+PREP_LOCK = threading.Lock()
 
 
 def load_model():
@@ -55,6 +61,30 @@ def load_model():
         MODEL.text_encoder.to(DEVICE)
     MODEL.generator.to(DEVICE); MODEL.vae.to(DEVICE)
     return MODEL, VAE
+
+
+def prepare_model():
+    """Load weights and initialize the persistent GPU caches once at startup."""
+    global MODEL_READY, MODEL_ERROR, PREP_STARTED_AT, PREP_FINISHED_AT
+    with PREP_LOCK:
+        if MODEL_READY:
+            return
+        PREP_STARTED_AT = time.perf_counter()
+        try:
+            model, _ = load_model()
+            if DEVICE == "cuda":
+                # Allocate the long-lived caches before the user presses Start.
+                # This avoids the largest CUDA allocation spike in the demo path.
+                with torch.inference_mode():
+                    model._initialize_kv_cache(batch_size=1, dtype=torch.bfloat16, device=DEVICE)
+                    model._initialize_crossattn_cache(batch_size=1, dtype=torch.bfloat16, device=DEVICE)
+                    torch.cuda.synchronize()
+            MODEL_READY = True
+            PREP_FINISHED_AT = time.perf_counter()
+        except Exception as exc:
+            MODEL_ERROR = str(exc)
+            PREP_FINISHED_AT = time.perf_counter()
+            print(f"Model preparation failed: {exc}")
 
 
 def resize_mask(mask, latent):
@@ -119,7 +149,12 @@ def test_input(name):
 
 @app.get("/api/status")
 def status():
-    return jsonify({"active": ACTIVE, "device": DEVICE, "cuda": torch.cuda.is_available()})
+    prep_seconds = None
+    if PREP_STARTED_AT is not None:
+        prep_seconds = round((PREP_FINISHED_AT or time.perf_counter()) - PREP_STARTED_AT, 2)
+    return jsonify({"active": ACTIVE, "device": DEVICE, "cuda": torch.cuda.is_available(),
+                    "model_ready": MODEL_READY, "model_error": MODEL_ERROR,
+                    "preparation_seconds": prep_seconds})
 
 @socketio.on("start")
 def start(data):
@@ -130,6 +165,8 @@ def start(data):
         name = data.get("video")
         if name not in [p.name for p in (ROOT / "test_input/video").glob("*.mp4")]:
             emit("job_error", {"message": "找不到所选视频"}); return
+        if not MODEL_READY:
+            emit("job_error", {"message": MODEL_ERROR or "GPU 模型仍在准备，请稍候"}); return
         ACTIVE = True; job = uuid.uuid4().hex
         threading.Thread(target=run_job, args=(name, job), daemon=True).start()
         emit("started", {"job_id": job})
@@ -137,4 +174,5 @@ def start(data):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(); parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args(); print(f"Demo: http://{args.host}:{args.port}")
+    threading.Thread(target=prepare_model, daemon=True, name="model-preload").start()
     socketio.run(app, host=args.host, port=args.port, debug=False, allow_unsafe_werkzeug=True)
