@@ -193,7 +193,7 @@ def run_job(video_name, latent_frames, job_id):
         if not mask_path.exists():
             raise FileNotFoundError(f"Matching mask video was not found: {mask_path.name}")
 
-        socketio.emit("progress", {"job_id": job_id, "progress": 8, "message": "Reading source and mask"})
+        socketio.emit("progress", {"job_id": job_id, "progress": 0, "message": "Reading source and mask"})
         input_video, input_mask, _, _ = get_video_and_mask(
             input_video_path=str(video_path),
             input_mask_path=str(mask_path),
@@ -224,7 +224,7 @@ def run_job(video_name, latent_frames, job_id):
         )
         mask_condition = rearrange(mask_condition.float(), "(b f) c h w -> b c f h w", f=video_length)
 
-        socketio.emit("progress", {"job_id": job_id, "progress": 18, "message": "Encoding removal condition"})
+        socketio.emit("progress", {"job_id": job_id, "progress": 0, "message": "Encoding removal condition"})
         masked_video_latents = prepare_mask_latents(init_video, DEVICE, vae)
         mask_condition = torch.cat(
             [torch.repeat_interleave(mask_condition[:, :, 0:1], repeats=4, dim=2), mask_condition[:, :, 1:]],
@@ -239,7 +239,7 @@ def run_job(video_name, latent_frames, job_id):
             device=DEVICE,
             dtype=WEIGHT_DTYPE,
         )
-        socketio.emit("progress", {"job_id": job_id, "progress": 25, "message": "Generating long video"})
+        socketio.emit("progress", {"job_id": job_id, "progress": 0, "message": "Generating long video"})
         socketio.emit(
             "stream_started",
             {
@@ -252,13 +252,8 @@ def run_job(video_name, latent_frames, job_id):
         generation_started = time.perf_counter()
 
         stream_frame_cursor = 0
-        num_blocks = max(
-            1,
-            (latent_frames + max(1, int(getattr(model, "num_frame_per_block", 1))) - 1)
-            // max(1, int(getattr(model, "num_frame_per_block", 1))),
-        )
 
-        def emit_stream_block(pixel_block, block_index, _latent_start, is_last):
+        def emit_stream_block(pixel_block, _block_index, _latent_start, is_last):
             """Encode one decoded VAE block and publish ordered JPEG frames."""
             nonlocal stream_frame_cursor
             frames = (
@@ -294,10 +289,10 @@ def run_job(video_name, latent_frames, job_id):
                 )
                 stream_frame_cursor += 1
 
-            # The generation bar measures model generation and streamed VAE/JPEG
-            # work only.  It reaches 100% when the final block is available;
-            # writing the final MP4 below is reported as a separate status.
-            stream_progress = 25 + round(75 * (block_index + 1) / num_blocks)
+            # Count actual output frames, since the first VAE block is shorter.
+            # Input preparation contributes no progress; all frames being ready
+            # reaches 100% before the final MP4 is written.
+            stream_progress = round(100 * stream_frame_cursor / target_pixel_frames)
             stream_seconds = time.perf_counter() - generation_started
             stream_fps = stream_frame_cursor / max(stream_seconds, 1e-6)
             socketio.emit(
@@ -305,7 +300,7 @@ def run_job(video_name, latent_frames, job_id):
                 {
                     "job_id": job_id,
                     "progress": min(100, stream_progress),
-                    "message": "Streaming output" if not is_last else "Finalizing output",
+                    "message": "Streaming output" if not is_last else "Generation complete",
                     "stream_frame": stream_frame_cursor,
                     "fps": round(stream_fps, 2),
                     "realtime": round(stream_fps / OUTPUT_FPS, 2),
