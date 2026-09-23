@@ -295,6 +295,8 @@ def run_job(video_name, latent_frames, job_id):
                 stream_frame_cursor += 1
 
             stream_progress = 25 + round(60 * (block_index + 1) / num_blocks)
+            stream_seconds = time.perf_counter() - generation_started
+            stream_fps = stream_frame_cursor / max(stream_seconds, 1e-6)
             socketio.emit(
                 "progress",
                 {
@@ -302,6 +304,9 @@ def run_job(video_name, latent_frames, job_id):
                     "progress": min(85, stream_progress),
                     "message": "Streaming output" if not is_last else "Finalizing output",
                     "stream_frame": stream_frame_cursor,
+                    "fps": round(stream_fps, 2),
+                    "realtime": round(stream_fps / OUTPUT_FPS, 2),
+                    "elapsed": round(time.perf_counter() - started, 2),
                 },
             )
             if is_last:
@@ -445,13 +450,14 @@ def start(data):
             return
         ACTIVE = True
         job_id = uuid.uuid4().hex
+        # Announce the ID before the worker can publish progress or frames.
+        emit("started", {"job_id": job_id, "latent_frames": latent_frames})
         threading.Thread(
             target=run_job,
             args=(video_name, latent_frames, job_id),
             daemon=True,
             name=f"long-generation-{job_id[:8]}",
         ).start()
-        emit("started", {"job_id": job_id, "latent_frames": latent_frames})
 
 
 def main():

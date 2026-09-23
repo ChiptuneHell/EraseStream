@@ -1,282 +1,457 @@
-// Every application URL is relative, so this page works below /session/.../proxy/5001/.
-const pageBase = window.location.pathname.endsWith('/') ? window.location.pathname : `${window.location.pathname}/`;
-const socket = io({ path: `${pageBase}socket.io` });
+// Every application URL stays below the GPU platform's proxy prefix.
+const pageBase = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+const socket = io({ path: pageBase + 'socket.io' });
 const $ = id => document.getElementById(id);
 const source = $('src'), output = $('out'), sourceSelect = $('video');
-const streamCanvas = $('stream-canvas');
-const streamContext = streamCanvas.getContext('2d');
-const resultCard = $('result-card');
-const players = [source, output];
+const canvas = $('stream-canvas'), context = canvas.getContext('2d');
+const bufferSelect = $('buffer-seconds');
+const lengthButtons = [...document.querySelectorAll('.length-button')];
 
-let selectedLatent = 21;
-let playing = false;
-let rafId = 0;
-let pendingAutoplay = false;
-let currentJobId = null;
+let selectedLatent = 21, modelReady = false, busy = false, awaitingStart = false;
+let jobId = null, revision = 0, mode = 'idle', fps = 16, totalFrames = 0;
+let nextFrame = 0, receivedFrames = 0, streamDone = false, startedOnce = false;
+let requestedPlay = false, running = false, starting = false, ended = false;
+let streamFailed = false, finalUrl = null, rafId = 0, stalls = 0;
+let generationProgress = 0, startBufferSeconds = 2;
+let clockRevision = 0;
+const frames = new Map(), received = new Set();
 
-// The stream is an ordered JPEG frame queue. The backend emits frames after
-// each causal VAE block, while a short buffer keeps playback smooth between
-// two comparatively slow blocks.
-let streaming = false;
-let streamFinished = false;
-let streamJobId = null;
-let streamExpectedFrames = 0;
-let streamReceivedFrames = 0;
-let streamFps = 16;
-let streamNextFrame = 0;
-let streamPlaying = false;
-let streamClockOrigin = 0;
-let streamRafId = 0;
-const streamFrameMap = new Map();
-
-function setMedia() {
-  pauseAll();
-  resetStream();
-  const name = encodeURIComponent(sourceSelect.value);
-  source.src = `long_preview/${name}`;
-  source.poster = `long_preview/poster/${name}`;
-  output.removeAttribute('src'); output.load();
-  resultCard.classList.remove('has-video', 'streaming');
-  $('result-label').textContent = 'WAITING FOR GENERATION';
-  source.load();
-  $('play').disabled = true; $('reset').disabled = false; $('scrub').disabled = false;
-}
-sourceSelect.addEventListener('change', setMedia);
-setMedia();
-
-document.querySelectorAll('.length-button').forEach(button => button.addEventListener('click', () => {
-  document.querySelectorAll('.length-button').forEach(item => item.classList.remove('selected'));
-  button.classList.add('selected'); selectedLatent = Number(button.dataset.latent);
-}));
-
-function duration() {
-  const values = players.filter(item => item.src && Number.isFinite(item.duration) && item.duration > 0).map(item => item.duration);
-  return values.length ? Math.min(...values) : 0;
-}
-function safeTime(item, value) { if (item.readyState > 0 && Number.isFinite(item.duration)) { try { item.currentTime = Math.min(Math.max(value, 0), item.duration); } catch (_) {} } }
-function setTime(value) { players.forEach(item => safeTime(item, value)); updatePlayback(); }
-function align() {
-  const t = source.currentTime || 0, d = duration();
-  if (d && t >= d - .04) { setTime(0); return; }
-  players.forEach(item => { if (item !== source && Math.abs((item.currentTime || 0) - t) > .05) safeTime(item, t); });
-}
-function frame() {
-  if (!playing) return;
-  if (!streaming) { align(); updatePlayback(); }
-  rafId = requestAnimationFrame(frame);
+function showView(view) {
+  // Exactly one surface occupies the same fixed media box in every state.
+  output.hidden = view !== 'video';
+  canvas.hidden = view !== 'stream';
+  $('empty').hidden = view !== 'empty';
+  $('result-card').dataset.view = view;
 }
 
-function updatePlayback() {
-  if (streaming) { updateStreamPlayback(); return; }
-  const t = source.currentTime || 0, d = duration(), ratio = d ? Math.min(t / d, 1) : 0;
-  $('scrub').value = Math.round(ratio * 1000); $('clock').textContent = `${t.toFixed(1)} / ${d.toFixed(1)} s`;
-  $('playline').style.width = `${ratio * 100}%`; $('playback-label').textContent = `${Math.round(ratio * 100)}%`;
+function seek(media, seconds) {
+  if (media.readyState < 1 || !Number.isFinite(media.duration)) return;
+  const time = Math.max(0, Math.min(seconds, media.duration));
+  if (Math.abs(media.currentTime - time) > .001) media.currentTime = time;
 }
 
-function updateStreamTelemetry() {
-  const expected = streamExpectedFrames || '—';
-  $('frames').textContent = `${streamReceivedFrames} / ${expected}`;
+function stopClock() {
+  clockRevision++;
+  running = false;
+  starting = false;
+  source.pause();
+  output.pause();
+  cancelAnimationFrame(rafId);
 }
 
-function updateStreamPlayback() {
-  const durationSeconds = streamExpectedFrames / Math.max(streamFps, 1);
-  const currentSeconds = Math.min(streamNextFrame / Math.max(streamFps, 1), durationSeconds);
-  const ratio = durationSeconds ? Math.min(currentSeconds / durationSeconds, 1) : 0;
-  $('scrub').value = Math.round(ratio * 1000);
-  $('clock').textContent = `${currentSeconds.toFixed(1)} / ${durationSeconds.toFixed(1)} s`;
-  $('playline').style.width = `${ratio * 100}%`;
-  $('playback-label').textContent = `${Math.round(ratio * 100)}%`;
-}
-
-function drawStreamFrame(index) {
-  const image = streamFrameMap.get(index);
-  if (!image) return false;
-  const width = image.naturalWidth || image.width;
-  const height = image.naturalHeight || image.height;
-  if (streamCanvas.width !== width || streamCanvas.height !== height) {
-    streamCanvas.width = width; streamCanvas.height = height;
-  }
-  streamContext.drawImage(image, 0, 0, width, height);
-  streamFrameMap.delete(index);
-  return true;
-}
-
-function contiguousStreamFrames() {
+function contiguousFrames() {
   let count = 0;
-  while (streamFrameMap.has(streamNextFrame + count)) count += 1;
+  while (frames.has(nextFrame + count)) count++;
   return count;
 }
 
-function streamFrameLoop(now) {
-  if (!streamPlaying) return;
-  const framePeriod = 1000 / Math.max(streamFps, 1);
-  const target = Math.floor((now - streamClockOrigin) / framePeriod);
-  while (streamNextFrame <= target) {
-    if (!drawStreamFrame(streamNextFrame)) {
-      // A causal block may take longer than the playback period. Hold the
-      // last frame and restart the local clock when the next frame arrives.
-      streamClockOrigin = now - streamNextFrame * framePeriod;
-      $('result-label').textContent = streamFinished ? 'STREAM READY' : 'BUFFERING';
-      break;
+function updateControls() {
+  sourceSelect.disabled = busy;
+  bufferSelect.disabled = busy;
+  lengthButtons.forEach(button => { button.disabled = busy; });
+  $('start').disabled = !modelReady || busy || awaitingStart || !socket.connected;
+  $('play').disabled = mode === 'idle' || (ended && mode === 'stream') || streamFailed;
+  // Consumed JPEG frames are released; seeking/replaying becomes available
+  // only once the complete MP4 is ready.
+  $('reset').disabled = mode !== 'video';
+  $('scrub').disabled = mode !== 'video';
+  const label = ended ? 'Replay' : requestedPlay ? 'Pause all' : 'Play all';
+  $('play').innerHTML = '<span>' + (requestedPlay ? '❚❚' : '▶') + '</span><b>' + label + '</b>';
+}
+
+function updatePlayback() {
+  const duration = totalFrames / fps;
+  const time = ended ? duration : mode === 'video' ? output.currentTime : Math.min(nextFrame / fps, duration);
+  const ratio = duration ? Math.max(0, Math.min(time / duration, 1)) : 0;
+  $('clock').textContent = time.toFixed(1) + ' / ' + duration.toFixed(1) + ' s';
+  $('scrub').value = Math.round(ratio * 1000);
+  $('playline').style.width = ratio * 100 + '%';
+  $('playback-label').textContent = Math.round(ratio * 100) + '%';
+  $('played').textContent = String(ended ? totalFrames : mode === 'video' ? Math.min(totalFrames, Math.floor(time * fps)) : nextFrame);
+  const buffer = mode === 'stream' ? contiguousFrames() / fps : 0;
+  $('buffered').textContent = buffer.toFixed(1) + 's';
+  $('buffered').title = 'Automatic buffering pauses: ' + stalls;
+}
+
+function updateFrames() {
+  $('frames').textContent = receivedFrames + ' / ' + totalFrames;
+  updatePlayback();
+}
+
+function setProgress(value, message) {
+  generationProgress = Math.max(generationProgress, Math.min(100, Number(value) || 0));
+  $('bar').style.width = generationProgress + '%';
+  $('progress').textContent = generationProgress + '%';
+  $('generation-label').textContent = message;
+}
+
+function resetPlayback() {
+  revision++;
+  stopClock();
+  jobId = null;
+  mode = 'idle';
+  totalFrames = nextFrame = receivedFrames = stalls = 0;
+  requestedPlay = streamDone = startedOnce = ended = streamFailed = false;
+  finalUrl = null;
+  frames.clear();
+  received.clear();
+  output.removeAttribute('src');
+  output.load();
+  source.loop = output.loop = false;
+  seek(source, 0);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  showView('empty');
+  updatePlayback();
+}
+
+function setMedia() {
+  if (busy) return;
+  resetPlayback();
+  const name = encodeURIComponent(sourceSelect.value);
+  source.src = 'long_preview/' + name;
+  source.poster = 'long_preview/poster/' + name;
+  source.load(); // Remains paused until generated frames are buffered.
+  $('result-label').textContent = 'WAITING FOR GENERATION';
+  updateControls();
+}
+
+function draw(image) {
+  if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+  }
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  showView('stream');
+}
+
+function bufferStream() {
+  const wasRunning = running;
+  stopClock();
+  if (wasRunning) stalls++;
+  // Keep the source on the same frame as the canvas while the queue refills.
+  seek(source, Math.max(0, nextFrame - 1) / fps);
+  $('result-label').textContent = startedOnce ? 'REBUFFERING' : 'BUFFERING';
+  updatePlayback();
+  updateControls();
+}
+
+function finishPlayback() {
+  stopClock();
+  ended = true;
+  requestedPlay = false;
+  if (mode === 'stream') nextFrame = totalFrames;
+  seek(source, Math.max(0, totalFrames - 1) / fps);
+  $('result-label').textContent = finalUrl ? 'PLAYBACK COMPLETE' : 'SAVING FINAL VIDEO';
+  updatePlayback();
+  updateControls();
+  tryFinalVideo();
+}
+
+function tick() {
+  if (!running) return;
+  if (mode === 'stream') {
+    // The decoded source media clock drives the canvas, rather than a second
+    // wall clock plus repeated seeks of the source (which caused jitter).
+    if (!source.seeking && source.readyState >= 2) {
+      const target = Math.min(totalFrames - 1, Math.floor((source.currentTime + .0001) * fps));
+      while (nextFrame <= target) {
+        const image = frames.get(nextFrame);
+        if (!image) { bufferStream(); return; }
+        draw(image);
+        frames.delete(nextFrame++);
+      }
+      if (nextFrame === totalFrames && source.currentTime >= totalFrames / fps - .005) {
+        finishPlayback();
+        return;
+      }
     }
-    streamNextFrame += 1;
+  } else if (mode === 'video') {
+    if (output.ended || output.currentTime >= totalFrames / fps - .005) {
+      finishPlayback();
+      return;
+    }
+    if (!output.seeking && !source.seeking && Math.abs(source.currentTime - output.currentTime) > .12) {
+      seek(source, output.currentTime);
+    }
   }
-  if (streamNextFrame > 0) $('result-label').textContent = streamFinished ? 'STREAM READY' : 'PLAYING · LIVE';
-  // The source preview is the timing reference for the final MP4. During
-  // live canvas playback, correct it from the generated frame index so a
-  // slow block or a source loop never causes the two views to drift apart.
-  const sourceTime = Math.min(streamNextFrame / Math.max(streamFps, 1), source.duration || 0);
-  if (source.readyState > 0 && Number.isFinite(source.duration) && Math.abs(source.currentTime - sourceTime) > .06) {
-    safeTime(source, sourceTime);
-  }
-  updateStreamPlayback();
-  if (streamFinished && streamNextFrame >= streamExpectedFrames) {
-    streamPlaying = false;
-    return;
-  }
-  streamRafId = requestAnimationFrame(streamFrameLoop);
+  updatePlayback();
+  rafId = requestAnimationFrame(tick);
 }
 
-function startStreamPlayback() {
-  if (!streaming || streamPlaying) return;
-  const threshold = Math.min(8, streamExpectedFrames || 8);
-  if (!streamFinished && contiguousStreamFrames() < threshold) return;
-  streamPlaying = true; playing = true;
-  $('play').innerHTML = '<span>❚❚</span><b>Pause all</b>';
-  streamClockOrigin = performance.now() - streamNextFrame * (1000 / Math.max(streamFps, 1));
-  source.play().catch(() => {});
-  cancelAnimationFrame(streamRafId);
-  streamRafId = requestAnimationFrame(streamFrameLoop);
-  cancelAnimationFrame(rafId);
-  rafId = requestAnimationFrame(frame);
-}
-
-function resetStream() {
-  streamPlaying = false; streaming = false; streamFinished = false;
-  streamJobId = null; streamExpectedFrames = 0; streamReceivedFrames = 0;
-  streamNextFrame = 0; streamFrameMap.clear();
-  cancelAnimationFrame(streamRafId);
-  streamContext.clearRect(0, 0, streamCanvas.width, streamCanvas.height);
-  resultCard.classList.remove('streaming');
-  $('empty').style.display = '';
-  updateStreamTelemetry();
-}
-
-function playAll() {
-  if (streaming) { startStreamPlayback(); return; }
-  const ready = players.filter(item => item.src && item.readyState > 0);
-  if (!ready.length) return;
-  playing = true; $('play').innerHTML = '<span>❚❚</span><b>Pause all</b>';
-  ready.forEach(item => item.play().catch(() => {}));
-  cancelAnimationFrame(rafId); rafId = requestAnimationFrame(frame);
-}
-function pauseAll() {
-  playing = false; streamPlaying = false;
-  players.forEach(item => item.pause());
-  cancelAnimationFrame(rafId); cancelAnimationFrame(streamRafId);
-  $('play').innerHTML = '<span>▶</span><b>Play all</b>';
-}
-
-$('play').onclick = () => playing ? pauseAll() : playAll();
-$('reset').onclick = () => { pauseAll(); if (streaming) resetStream(); setTime(0); };
-$('scrub').oninput = event => {
-  if (streaming) {
-    streamNextFrame = Math.round(streamExpectedFrames * Number(event.target.value) / 1000);
-    updateStreamPlayback();
-    return;
+async function startClocks(media) {
+  const token = revision;
+  const clockToken = ++clockRevision;
+  starting = true;
+  try {
+    await Promise.all(media.map(item => item.play()));
+    if (token !== revision || clockToken !== clockRevision || !requestedPlay || ended || streamFailed || !starting) return;
+    starting = false;
+    running = true;
+    startedOnce = true;
+    $('result-label').textContent = mode === 'stream' ? 'PLAYING · LIVE' : 'SYNCHRONIZED PLAYBACK';
+    updateControls();
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(tick);
+  } catch (_) {
+    if (token !== revision || clockToken !== clockRevision) return;
+    stopClock();
+    requestedPlay = false;
+    $('result-label').textContent = 'PRESS PLAY TO CONTINUE';
+    updateControls();
   }
-  setTime(duration() * Number(event.target.value) / 1000);
+}
+
+function maybePlay() {
+  if (!requestedPlay || running || starting || ended || streamFailed || mode === 'idle') return;
+  if (source.readyState < 2 || source.seeking) return;
+  if (mode === 'stream') {
+    const count = contiguousFrames(), remaining = totalFrames - nextFrame;
+    if (remaining <= 0) { finishPlayback(); return; }
+    const seconds = startedOnce ? Math.min(startBufferSeconds, 1) : startBufferSeconds;
+    const threshold = Math.min(remaining, Math.max(1, Math.ceil(seconds * fps)));
+    // stream_finished means all frames were sent, not that JPEGs have all
+    // decoded. Only the complete contiguous tail may bypass the threshold.
+    if (count < threshold && !(streamDone && count === remaining)) {
+      $('result-label').textContent = startedOnce ? 'REBUFFERING' : 'BUFFERING · ' + startBufferSeconds + 's';
+      return;
+    }
+    startClocks([source]);
+  } else if (output.readyState >= 2 && !output.seeking) {
+    startClocks([source, output]);
+  }
+}
+
+function tryFinalVideo() {
+  // Never interrupt the first streaming pass just because MP4 writing ended.
+  if (mode !== 'stream' || !finalUrl || (!ended && !streamFailed) || output.readyState < 2 || output.seeking) return;
+  const target = ended ? Math.max(0, totalFrames - 1) / fps : Math.max(0, nextFrame - 1) / fps;
+  if (Math.abs(output.currentTime - target) > .5 / fps) { seek(output, target); return; }
+  stopClock();
+  requestedPlay = false;
+  streamFailed = false;
+  mode = 'video';
+  frames.clear();
+  showView('video');
+  seek(source, target);
+  $('result-label').textContent = ended ? 'PLAYBACK COMPLETE' : 'READY TO PLAY';
+  updatePlayback();
+  updateControls();
+}
+
+function failStream(message) {
+  stopClock();
+  requestedPlay = false;
+  streamFailed = true;
+  $('status').textContent = message;
+  $('result-label').textContent = 'STREAM INTERRUPTED';
+  updateControls();
+  tryFinalVideo();
+}
+
+function accepts(data) { return Boolean(jobId && data.job_id === jobId); }
+
+sourceSelect.addEventListener('change', setMedia);
+lengthButtons.forEach(button => button.addEventListener('click', () => {
+  if (busy) return;
+  lengthButtons.forEach(item => item.classList.remove('selected'));
+  button.classList.add('selected');
+  selectedLatent = Number(button.dataset.latent);
+}));
+
+$('play').onclick = () => {
+  if (requestedPlay) {
+    requestedPlay = false;
+    stopClock();
+    $('result-label').textContent = 'PAUSED';
+  } else {
+    if (ended && mode === 'video') {
+      ended = false;
+      seek(source, 0);
+      seek(output, 0);
+    }
+    requestedPlay = true;
+    maybePlay();
+  }
+  updateControls();
 };
-source.ontimeupdate = () => { if (!streaming) updatePlayback(); };
-source.onended = () => { pauseAll(); setTime(0); };
-source.onloadeddata = () => { if (streamPlaying) source.play().catch(() => {}); };
 
-function showFinalOutput() {
-  pendingAutoplay = false;
-  streamPlaying = false; streaming = false;
-  cancelAnimationFrame(streamRafId);
-  resultCard.classList.remove('streaming');
-  resultCard.classList.add('has-video');
-  $('result-label').textContent = 'READY TO PLAY';
-  setTime(0); playAll();
+$('reset').onclick = () => {
+  if (mode !== 'video') return;
+  requestedPlay = false;
+  ended = false;
+  stopClock();
+  seek(source, 0);
+  seek(output, 0);
+  updatePlayback();
+  updateControls();
+};
+$('scrub').oninput = event => {
+  if (mode !== 'video') return;
+  const time = totalFrames / fps * Number(event.target.value) / 1000;
+  stopClock();
+  ended = false;
+  seek(source, time);
+  seek(output, time);
+  updatePlayback();
+  maybePlay();
+};
+
+for (const name of ['loadeddata', 'canplay', 'seeked']) {
+  source.addEventListener(name, maybePlay);
+  output.addEventListener(name, () => { tryFinalVideo(); maybePlay(); });
+}
+source.addEventListener('ended', () => {
+  if (mode === 'stream' && nextFrame >= totalFrames - 1 && frames.has(totalFrames - 1)) {
+    draw(frames.get(totalFrames - 1));
+    frames.delete(totalFrames - 1);
+    nextFrame = totalFrames;
+  }
+  if (mode === 'stream' && nextFrame === totalFrames) finishPlayback();
+  else if (mode === 'stream') failStream('Source preview ended before the generated video. Rebuild the preview.');
+});
+output.addEventListener('ended', () => { if (mode === 'video') finishPlayback(); });
+for (const media of [source, output]) {
+  media.addEventListener('waiting', () => {
+    if (!running || (mode === 'stream' && media === output)) return;
+    stopClock();
+    $('result-label').textContent = 'BUFFERING VIDEO';
+  });
+  media.addEventListener('error', () => {
+    if (!media.getAttribute('src')) return;
+    if (media === source) failStream('Source preview could not be loaded.');
+    else {
+      $('status').textContent = 'Final video could not be loaded. The live preview is still available.';
+      finalUrl = null;
+    }
+  });
 }
 
 $('start').onclick = () => {
-  $('start').disabled = true; $('status').textContent = 'Generating…'; $('generation-label').textContent = 'Starting';
-  $('progress').textContent = '0%'; $('bar').style.width = '0%'; $('result-label').textContent = 'GENERATING';
-  pauseAll(); resetStream(); output.removeAttribute('src'); output.load(); resultCard.classList.remove('has-video');
-  currentJobId = null;
+  if (busy || !modelReady || !socket.connected) return;
+  resetPlayback();
+  busy = awaitingStart = true;
+  generationProgress = 0;
+  startBufferSeconds = Number(bufferSelect.value) || 2;
+  for (const id of ['fps', 'speed', 'elapsed', 'frames']) $(id).textContent = '—';
+  setProgress(0, 'Starting');
+  $('status').textContent = 'Preparing input…';
+  $('result-label').textContent = 'PREPARING INPUT';
+  updateControls();
   socket.emit('start', { video: sourceSelect.value, latent_frames: selectedLatent });
 };
 
 socket.on('started', data => {
-  currentJobId = data.job_id;
-  $('status').textContent = 'Generating…'; $('generation-label').textContent = 'Running';
-  $('progress').textContent = '25%'; $('bar').style.width = '25%';
+  if (!awaitingStart) return;
+  awaitingStart = false;
+  jobId = data.job_id;
+  $('status').textContent = 'Generating…';
+  setProgress(0, 'Preparing input');
+  updateControls();
 });
-
-socket.on('stream_started', data => {
-  if (currentJobId && data.job_id !== currentJobId) return;
-  streamJobId = data.job_id; streaming = true; streamFinished = false;
-  streamExpectedFrames = Number(data.total_frames) || 0; streamFps = Number(data.fps) || 16;
-  streamReceivedFrames = 0; streamNextFrame = 0; streamFrameMap.clear();
-  resultCard.classList.add('streaming'); resultCard.classList.remove('has-video');
-  $('empty').style.display = 'none'; $('result-label').textContent = 'BUFFERING';
-  $('play').disabled = false; updateStreamTelemetry();
-});
-
-socket.on('stream_frame', data => {
-  if (data.job_id !== streamJobId) return;
-  const index = Number(data.frame_index);
-  if (!Number.isFinite(index) || !data.jpeg) return;
-  streamReceivedFrames = Math.max(streamReceivedFrames, index + 1);
-  updateStreamTelemetry();
+function handleStreamStarted(data) {
+  if (!accepts(data)) return;
+  mode = 'stream';
+  totalFrames = Number(data.total_frames);
+  fps = Number(data.fps) || 16;
+  requestedPlay = true;
+  $('result-label').textContent = 'BUFFERING · ' + startBufferSeconds + 's';
+  updateFrames();
+  updateControls();
+}
+function handleStreamFrame(data) {
+  if (!accepts(data) || mode !== 'stream' || streamFailed) return;
+  const index = Number(data.frame_index), token = revision;
+  if (!Number.isInteger(index) || index < 0 || index >= totalFrames || received.has(index)) return;
+  received.add(index);
+  receivedFrames = received.size;
+  updateFrames();
   const image = new Image();
   image.onload = () => {
-    if (data.job_id !== streamJobId || !streaming) return;
-    streamFrameMap.set(index, image);
-    startStreamPlayback();
+    if (token !== revision || !accepts(data) || mode !== 'stream' || streamFailed) return;
+    frames.set(index, image);
+    if (index === 0 && !startedOnce) draw(image); // Still image until buffer is ready.
+    updatePlayback();
+    maybePlay();
   };
-  image.onerror = () => { $('result-label').textContent = 'STREAM FRAME ERROR'; };
-  image.src = `data:image/jpeg;base64,${data.jpeg}`;
-});
-
-socket.on('stream_finished', data => {
-  if (data.job_id !== streamJobId) return;
-  streamFinished = true;
-  $('result-label').textContent = 'FINALIZING OUTPUT';
-  startStreamPlayback();
-});
-
+  image.onerror = () => {
+    if (token === revision && accepts(data)) failStream('A streamed frame could not be decoded. Waiting for the final video.');
+  };
+  image.src = 'data:image/jpeg;base64,' + data.jpeg;
+}
+function handleStreamFinished(data) {
+  if (!accepts(data)) return;
+  streamDone = true;
+  if (Number(data.frames) !== totalFrames) {
+    failStream('Stream frame count differs from the selected length. Waiting for the final video.');
+    return;
+  }
+  maybePlay();
+}
+socket.on('stream_started', handleStreamStarted);
+socket.on('stream_frame', handleStreamFrame);
+socket.on('stream_finished', handleStreamFinished);
 socket.on('progress', data => {
-  if (currentJobId && data.job_id && data.job_id !== currentJobId) return;
-  $('status').textContent = data.message; $('generation-label').textContent = data.message;
-  $('progress').textContent = `${data.progress}%`; $('bar').style.width = `${data.progress}%`;
+  if (!accepts(data)) return;
+  $('status').textContent = data.message;
+  setProgress(data.progress, data.message);
+  if (Number.isFinite(data.fps)) $('fps').textContent = data.fps.toFixed(2);
+  if (Number.isFinite(data.realtime)) $('speed').textContent = data.realtime.toFixed(2) + '×';
+  if (Number.isFinite(data.elapsed)) $('elapsed').textContent = data.elapsed.toFixed(2) + 's';
 });
-
-output.onloadedmetadata = () => { if (pendingAutoplay) showFinalOutput(); };
 socket.on('complete', data => {
-  if (currentJobId && data.job_id && data.job_id !== currentJobId) return;
-  streamFinished = true;
-  output.src = `${data.url}?t=${Date.now()}`; output.load();
-  $('result-label').textContent = 'LOADING FINAL VIDEO';
-  $('status').textContent = 'Complete · synchronized playback'; $('generation-label').textContent = 'Complete'; $('progress').textContent = '100%'; $('bar').style.width = '100%';
-  $('elapsed').textContent = `${data.elapsed}s`; $('fps').textContent = data.fps; $('speed').textContent = `${data.realtime}×`; $('frames').textContent = data.frames;
-  $('start').disabled = false; $('play').disabled = false; pendingAutoplay = true;
-  if (output.readyState > 0) showFinalOutput();
+  if (!accepts(data)) return;
+  busy = false;
+  streamDone = true;
+  finalUrl = data.url;
+  $('status').textContent = 'Generation complete';
+  setProgress(100, 'Complete');
+  $('elapsed').textContent = data.elapsed + 's';
+  $('fps').textContent = data.fps;
+  $('speed').textContent = data.realtime + '×';
+  $('frames').textContent = data.frames + ' / ' + data.frames;
+  output.src = finalUrl + '?t=' + Date.now();
+  output.load(); // Preload hidden; switch only when this streaming pass ends.
+  updateControls();
+  maybePlay();
+  tryFinalVideo();
 });
-
 socket.on('job_error', data => {
-  resetStream(); output.removeAttribute('src'); output.load(); resultCard.classList.remove('has-video');
-  $('status').textContent = `Error · ${data.message}`; $('generation-label').textContent = 'Failed'; $('result-label').textContent = 'GENERATION FAILED'; $('start').disabled = false;
+  if (data.job_id ? !accepts(data) : !awaitingStart) return;
+  busy = awaitingStart = false;
+  failStream('Error · ' + data.message);
+  jobId = null; // Ignore in-flight JPEG image decodes after a failed job.
+  $('generation-label').textContent = 'Failed';
+  updateControls();
 });
+socket.on('disconnect', () => {
+  if (busy) {
+    busy = awaitingStart = false;
+    failStream('Connection lost. Reconnect and start a new generation.');
+    jobId = null;
+  }
+  updateControls();
+});
+socket.on('connect', () => { updateControls(); pollStatus(); });
 
+let statusPolling = false;
 async function pollStatus() {
+  if (statusPolling) return;
+  statusPolling = true;
+  let retry = false;
   try {
     const data = await (await fetch('api/status', { cache: 'no-store' })).json();
-    if (data.model_ready) { $('start').disabled = false; $('start').innerHTML = '<span>✦</span> Start generation'; $('status').textContent = `GPU ready${data.preparation_seconds ? ` · prepared in ${data.preparation_seconds}s` : ''}`; $('status-dot').classList.add('ready'); return; }
-    if (data.model_error) { $('status').textContent = `Model error · ${data.model_error}`; $('start').innerHTML = '<span>↻</span> Retry'; $('start').disabled = false; return; }
-    setTimeout(pollStatus, 1000);
-  } catch (_) { setTimeout(pollStatus, 1500); }
+    modelReady = Boolean(data.model_ready);
+    if (!busy && mode === 'idle') {
+      $('status').textContent = modelReady ? 'GPU ready' : data.model_error ? 'Model error · ' + data.model_error : 'Preparing GPU';
+      $('start').innerHTML = modelReady ? '<span>✦</span> Start generation' : 'Preparing GPU…';
+    }
+    $('status-dot').classList.toggle('ready', modelReady);
+    retry = !modelReady && !data.model_error;
+    updateControls();
+  } catch (_) { retry = true; }
+  statusPolling = false;
+  if (retry) setTimeout(pollStatus, 1500);
 }
+
+setMedia();
 pollStatus();

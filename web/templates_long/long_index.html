@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>StreamErase / Long Video</title>
-  <link rel="stylesheet" href="static_long/style.css?v=stream-1">
+  <link rel="stylesheet" href="static_long/style.css?v=stream-3">
 </head>
 <body>
   <main class="page-shell">
@@ -33,6 +33,14 @@
           {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | round(1) }}s</button>{% endfor %}
         </div>
       </div>
+      <div class="control-block">
+        <label for="buffer-seconds">Playback buffer</label>
+        <select id="buffer-seconds" title="Wait for this much playable video before starting. Generation speed is measured separately.">
+          <option value="0.5">0.5s · Low latency</option>
+          <option value="2" selected>2s · Balanced</option>
+          <option value="3">3s · Smoother</option>
+        </select>
+      </div>
       <button id="start" class="primary-button" disabled><span>✦</span> Preparing GPU…</button>
     </section>
 
@@ -42,7 +50,7 @@
         <div class="media-card input-card">
           <div class="card-top"><span>Source + mask</span><small>MASK OVERLAY</small></div>
           <div class="input-stage">
-            <video id="src" muted loop playsinline preload="auto" aria-label="Source video with the removal mask overlaid"></video>
+            <video id="src" muted playsinline preload="auto" aria-label="Source video with the removal mask overlaid"></video>
             <div class="input-legend"><span class="legend-swatch"></span><span>Removal region</span></div>
           </div>
         </div>
@@ -53,10 +61,10 @@
         <div class="media-card result-card" id="result-card">
           <div class="card-top"><span>StreamErase output</span><small id="result-label">WAITING FOR GENERATION</small></div>
           <div class="result-visual">
-            <video id="out" muted loop playsinline preload="metadata"></video>
-            <canvas id="stream-canvas" aria-label="Streaming generated output"></canvas>
+            <video id="out" muted playsinline preload="auto" hidden></video>
+            <canvas id="stream-canvas" width="832" height="480" hidden aria-label="Streaming generated output"></canvas>
+            <div class="empty-state" id="empty"><strong>✦</strong><span>Ready to generate</span><small>Select a length and start the demo</small></div>
           </div>
-          <div class="empty-state" id="empty"><strong>✦</strong><span>Ready to generate</span><small>Select a length and start the demo</small></div>
         </div>
         <div class="playback-controls">
           <button id="play" class="play-button" disabled><span>▶</span><b>Play all</b></button>
@@ -72,16 +80,18 @@
       <div class="progress-row"><div><span>Generation</span><b id="generation-label">Waiting</b></div><div class="track"><i id="bar"></i></div></div>
       <div class="progress-row"><div><span>Playback</span><b id="playback-label">0%</b></div><div class="track muted-track"><i id="playline"></i></div></div>
       <div class="stats">
-        <div><small>Generation FPS</small><strong id="fps">—</strong></div>
+        <div title="Includes generation, VAE decoding and JPEG encoding; excludes input preparation and final MP4 writing."><small>Generation FPS</small><strong id="fps">—</strong></div>
         <div><small>Realtime speed</small><strong id="speed">—</strong></div>
         <div><small>Elapsed</small><strong id="elapsed">—</strong></div>
-        <div><small>Frames</small><strong id="frames">—</strong></div>
+        <div><small>Generated frames</small><strong id="frames">—</strong></div>
+        <div><small>Played frames</small><strong id="played">0</strong></div>
+        <div><small>Buffered video</small><strong id="buffered">0.0s</strong></div>
       </div>
     </section>
 
     <footer><span>StreamErase / long video</span><span>Mask-conditioned causal restoration</span></footer>
   </main>
   <script src="static_long/socket.io.min.js?v=4.7.5"></script>
-  <script src="static_long/app.js?v=stream-1"></script>
+  <script src="static_long/app.js?v=stream-3"></script>
 </body>
 </html>
