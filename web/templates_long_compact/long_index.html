@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f5">
+  <title>StreamErase / Long Video</title>
+  <link rel="stylesheet" href="compact_static/style.css?v=compact-1">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="./"><span class="brand-mark">SE</span><span>StreamErase</span></a>
+      <div class="top-meta"><span class="status-dot" id="status-dot"></span><span id="status">Preparing GPU</span></div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">LONG VIDEO INPAINTING · CAUSAL GENERATION</p>
+        <h1>Erase objects <em>over time.</em></h1>
+        <p class="hero-copy">Mask-conditioned video restoration with live output streaming.</p>
+      </div>
+      <div class="hero-index"><span>01</span><p>Interactive<br>restoration</p></div>
+    </section>
+
+    <section class="controls panel">
+      <div class="control-block source-control">
+        <label for="video">Source clip</label>
+        <select id="video">{% for preset in presets %}<option value="{{ preset }}">{{ preset }}</option>{% endfor %}</select>
+      </div>
+      <div class="control-block">
+        <label>Output length</label>
+        <div class="lengths" role="group" aria-label="Output length">
+          {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | round(1) }}s</button>{% endfor %}
+        </div>
+      </div>
+      <div class="control-block buffer-control">
+        <label for="buffer-seconds">Playback buffer</label>
+        <select id="buffer-seconds" title="Wait for this much playable video before starting.">
+          <option value="0.5">0.5s · Low latency</option>
+          <option value="2" selected>2s · Balanced</option>
+          <option value="3">3s · Smoother</option>
+        </select>
+      </div>
+      <button id="start" class="primary-button" disabled><span>✦</span> Preparing GPU…</button>
+    </section>
+
+    <section class="workspace">
+      <div class="column">
+        <div class="section-heading"><span>02</span><h2>Input / mask overlay</h2><i></i></div>
+        <div class="media-card">
+          <div class="media-stage">
+            <video id="src" muted playsinline preload="auto" aria-label="Source video with the removal mask overlaid"></video>
+            <div class="media-caption"><span class="legend-swatch"></span><span>Removal region</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="column result-column">
+        <div class="section-heading"><span>03</span><h2>Generated output</h2><i></i><b id="progress">0%</b></div>
+        <div class="media-card" id="result-card">
+          <div class="media-stage result-stage">
+            <video id="out" muted playsinline preload="auto" hidden></video>
+            <canvas id="stream-canvas" width="832" height="480" hidden aria-label="Streaming generated output"></canvas>
+            <div class="empty-state" id="empty"><strong>✦</strong><span>Ready to restore</span><small>Choose a length and start generation</small></div>
+            <div class="output-badge" id="result-label">WAITING FOR GENERATION</div>
+          </div>
+        </div>
+        <div class="playback-controls">
+          <button id="play" class="play-button" disabled><span>▶</span><b>Play all</b></button>
+          <button id="reset" class="quiet-button" disabled>Reset</button>
+          <span id="clock">0.0 / 0.0 s</span>
+          <input id="scrub" type="range" min="0" max="1000" value="0" disabled>
+        </div>
+      </div>
+    </section>
+
+    <section class="telemetry panel">
+      <div class="telemetry-heading"><div class="section-heading"><span>04</span><h2>Generation telemetry</h2><i></i></div><b id="generation-label">Waiting</b></div>
+      <div class="progress-pair">
+        <div><span>Generation <b id="progress-label">0%</b></span><div class="track"><i id="bar"></i></div></div>
+        <div><span>Playback <b id="playback-label">0%</b></span><div class="track playback-track"><i id="playline"></i></div></div>
+      </div>
+      <div class="stats">
+        <div><small>Generation FPS</small><strong id="fps">—</strong></div>
+        <div><small>Realtime speed</small><strong id="speed">—</strong></div>
+        <div><small>Elapsed</small><strong id="elapsed">—</strong></div>
+        <div><small>Generated frames</small><strong id="frames">—</strong></div>
+        <div><small>Played frames</small><strong id="played">0</strong></div>
+        <div><small>Buffered video</small><strong id="buffered">0.0s</strong></div>
+      </div>
+    </section>
+
+    <footer><span>StreamErase / long video</span><span>Mask-conditioned causal restoration</span></footer>
+  </main>
+  <script src="static_long/socket.io.min.js?v=4.7.5"></script>
+  <script src="static_long/app.js?v=compact-1"></script>
+</body>
+</html>
