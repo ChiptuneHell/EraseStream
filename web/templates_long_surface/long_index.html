@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#eef2ef">
+  <meta name="theme-color" content="#f5f6f4">
   <title>StreamErase / Long Video</title>
-  <link rel="stylesheet" href="surface_static/style.css?v=surface-1">
+  <link rel="stylesheet" href="surface_static/style.css?v=surface-2">
 </head>
 <body>
   <main class="page-shell">
@@ -93,6 +93,47 @@
     <footer><span>StreamErase / long video</span><span>Mask-conditioned causal restoration</span></footer>
   </main>
   <script src="static_long/socket.io.min.js?v=4.7.5"></script>
-  <script src="static_long/app.js?v=surface-1"></script>
+  <script src="static_long/app.js?v=surface-2"></script>
+  <script>
+    (() => {
+      const labels = new Map([
+        ['WAITING FOR GENERATION', 'Waiting'],
+        ['PREPARING INPUT', 'Preparing input'],
+        ['PLAYING · LIVE', 'Playing live'],
+        ['SYNCHRONIZED PLAYBACK', 'Synchronized playback'],
+        ['PRESS PLAY TO CONTINUE', 'Press play to continue'],
+        ['PLAYBACK COMPLETE', 'Playback complete'],
+        ['SAVING FINAL VIDEO', 'Saving final video'],
+        ['READY TO PLAY', 'Ready to play'],
+        ['STREAM INTERRUPTED', 'Stream interrupted'],
+        ['BUFFERING VIDEO', 'Buffering video'],
+        ['REBUFFERING', 'Rebuffering'],
+        ['PAUSED', 'Paused'],
+        ['BUFFERING', 'Buffering']
+      ]);
+
+      const quieten = (element) => {
+        if (!element) return;
+        const value = element.textContent.trim();
+        if (labels.has(value)) {
+          element.textContent = labels.get(value);
+          return;
+        }
+        const buffering = value.match(/^BUFFERING · (.+)$/);
+        if (buffering) element.textContent = `Buffering · ${buffering[1]}`;
+      };
+
+      const observe = () => {
+        ['status', 'result-label', 'generation-label'].forEach((id) => quieten(document.getElementById(id)));
+        const observer = new MutationObserver(() => {
+          ['status', 'result-label', 'generation-label'].forEach((id) => quieten(document.getElementById(id)));
+        });
+        observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+      };
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observe);
+      else observe();
+    })();
+  </script>
 </body>
 </html>
