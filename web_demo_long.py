@@ -294,14 +294,17 @@ def run_job(video_name, latent_frames, job_id):
                 )
                 stream_frame_cursor += 1
 
-            stream_progress = 25 + round(60 * (block_index + 1) / num_blocks)
+            # The generation bar measures model generation and streamed VAE/JPEG
+            # work only.  It reaches 100% when the final block is available;
+            # writing the final MP4 below is reported as a separate status.
+            stream_progress = 25 + round(75 * (block_index + 1) / num_blocks)
             stream_seconds = time.perf_counter() - generation_started
             stream_fps = stream_frame_cursor / max(stream_seconds, 1e-6)
             socketio.emit(
                 "progress",
                 {
                     "job_id": job_id,
-                    "progress": min(85, stream_progress),
+                    "progress": min(100, stream_progress),
                     "message": "Streaming output" if not is_last else "Finalizing output",
                     "stream_frame": stream_frame_cursor,
                     "fps": round(stream_fps, 2),
@@ -327,7 +330,9 @@ def run_job(video_name, latent_frames, job_id):
         torch.cuda.synchronize()
         generation_seconds = time.perf_counter() - generation_started
 
-        socketio.emit("progress", {"job_id": job_id, "progress": 90, "message": "Writing result video"})
+        # MP4 muxing happens after generation has completed and must not make
+        # the generation progress bar appear to stall below completion.
+        socketio.emit("progress", {"job_id": job_id, "progress": 100, "message": "Saving result video"})
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = RESULT_DIR / f"{job_id}.mp4"
         temporary_path = RESULT_DIR / f"{job_id}.tmp.mp4"
