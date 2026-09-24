@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f7f6">
   <title>StreamErase / Long Video</title>
-  <link rel="stylesheet" href="light_type_test_static/style.css?v=type-test-3">
+  <link rel="stylesheet" href="light_type_test_static/style.css?v=type-test-4">
 </head>
 <body>
   <main class="page-shell">
@@ -22,7 +22,7 @@
       <div class="control-block">
         <label>Output length</label>
         <div class="lengths" role="group" aria-label="Output length">
-          {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | round(0) | int }}s</button>{% endfor %}
+          {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | int }}s</button>{% endfor %}
         </div>
       </div>
       <div class="control-block">
@@ -79,6 +79,6 @@
 
   </main>
   <script src="static_long/socket.io.min.js?v=4.7.5"></script>
-  <script src="static_long/app.js?v=type-test-3"></script>
+  <script src="static_long/app.js?v=type-test-4"></script>
 </body>
 </html>
