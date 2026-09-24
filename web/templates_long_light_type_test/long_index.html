@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f7f6">
   <title>StreamErase / Long Video</title>
-  <link rel="stylesheet" href="light_type_test_static/style.css?v=type-test-1">
+  <link rel="stylesheet" href="light_type_test_static/style.css?v=type-test-2">
 </head>
 <body>
   <main class="page-shell">
@@ -31,7 +31,7 @@
       <div class="control-block">
         <label>Output length</label>
         <div class="lengths" role="group" aria-label="Output length">
-          {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | round(1) }}s</button>{% endfor %}
+          {% for frames in latent_frames %}<button class="length-button{% if frames == 21 %} selected{% endif %}" data-latent="{{ frames }}">{{ ((frames * 4 - 3) / 16) | round(0) | int }}s</button>{% endfor %}
         </div>
       </div>
       <div class="control-block">
@@ -80,19 +80,15 @@
       <div class="section-heading"><span>04</span><h2>Generation telemetry</h2><i></i></div>
       <div class="progress-row"><div><span>Generation</span><b id="generation-label">Waiting</b></div><div class="track"><i id="bar"></i></div></div>
       <div class="progress-row"><div><span>Playback</span><b id="playback-label">0%</b></div><div class="track muted-track"><i id="playline"></i></div></div>
-      <div class="stats">
-        <div title="Includes generation, VAE decoding and JPEG encoding; excludes input preparation and final MP4 writing."><small>Generation FPS</small><strong id="fps">—</strong></div>
-        <div><small>Realtime speed</small><strong id="speed">—</strong></div>
-        <div><small>Elapsed</small><strong id="elapsed">—</strong></div>
-        <div><small>Generated frames</small><strong id="frames">—</strong></div>
-        <div><small>Played frames</small><strong id="played">0</strong></div>
-        <div><small>Buffered video</small><strong id="buffered">0.0s</strong></div>
+      <div class="stats compatibility-stats" aria-hidden="true">
+        <span id="fps">—</span><span id="speed">—</span><span id="elapsed">—</span>
+        <span id="frames">—</span><span id="played">0</span><span id="buffered">0.0s</span>
       </div>
     </section>
 
     <footer><span>StreamErase / long video</span><span>Mask-conditioned causal restoration</span></footer>
   </main>
   <script src="static_long/socket.io.min.js?v=4.7.5"></script>
-  <script src="static_long/app.js?v=type-test-1"></script>
+  <script src="static_long/app.js?v=type-test-2"></script>
 </body>
 </html>
